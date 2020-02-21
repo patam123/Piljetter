@@ -1,0 +1,84 @@
+2.
+b) Jag har valt att inte låta tabellen för city vara i tredje normalform. Här skulle Country kunna brytas ut från tabellen
+och göras till en egen tabell. Jag har dock valt att låta den ligga som en kolumn i city-tabellen istället.
+Detta för att country endast används vid ett tillfälle, då som en sökparameter för kunden. För att prestandan ska bli
+bättre och slippa göra en till inner join i den querien har jag valt att låta country ligga som där. Detta ökar kravet
+på admins att stava rätt när de skriver in Country för varje stad och ökar möjligheten för inkonsistent data då
+samma land kan bli stavat på olika sätt. Detta är dock en trade-off jag är villig att göra för att öka upplevelsen för kunden
+i form av lägre laddtider.
+
+c) Constraints som existerar utöver nycklar: 
+CHK_Balance, existerar för att en kunds pesetaskonto inte ska kunna ligga på minus och för att kunden inte ska kunna
+köpa biljett till en konsert som kunden har pesetas nog till att köpa.
+CHK_Date finns för att en administratör inte ska kunna lägga in en konsert på ett datum som redan har passerat.
+CHK_Tickets finns för att det inte ska gå att köpa biljetter till konserten då det inte finns några biljetter kvar.
+
+d)Jag har använt icke-klustrade index på de kolumner som ingår i min sökfunktion. För concert-tabellen innebär detta ArtistName,VenueId, Date, IsCancelled.
+För Venue innebär det Name och CityId. Jag har inte valt att göra några non-clustered index för revoked tickets utöver concertId eftersom
+jag vill att inserts och updates ska gå snabbt att göra då jag vid en inställd konsert kommer göra många sådana samtidigt.
+För tickets har jag både concertId och customerId eftersom jag inte vill att kunden ska vänta i evigheter för att få fram sina biljetter. 
+Tickettabellen kommer troligen vara den kategori där det finns flest rader, vilket gör att det är viktigt att 
+ha icke-klustrade index på det som det kommer göras selects på. Varför jag har valt att lägga en non-clustered index på bara concertId
+är för det kommer att behöva göras selects på dessa för att få ut biljetter till en viss konsert, vilket man då vill ska gå fort.
+
+e) Beroende på vilka queries som görs behövs olika isolationsnivåer. T.ex vill jag ha sökfunktionen på read uncommitted eftersom det inte spelar någon roll
+ifall ändringar görs medan en person vill söka efter konserter. Ifall någon ändring skulle ske medan personen söker efter en konsert kommer kunden ändå
+inte att kunna köpa biljetter till den konserten i det skedet kunden ska köpa biljett till konserten ifall exempelvis en adminstratör ställer in konserten.
+Ett annat exempel är att när en person sätter in pengar på sitt konto vill man att isolationsnivån ska vara serializable eftersom man inte vill få in nya rader
+och riskera att raden där personen sätter in pengar läses igen, vilket skulle medföra att personen får in mer än vad den egentligen sätter in.
+I köpögonblicket då en kund köper en biljett vill jag också att tabellerna ska vara låsta på nivån repeatable read för att förhindra att available tickets
+minskas med en från flera olika ställen samtidigt, vilket skulle resultera i att antalet tillgängliga biljetter till slut skulle vara fler än vad som finns 
+tillgängligt enligt konsertplatsens faktiskta kapacitet. Likaså vill jag använda repeatable read när en konsert ska blåsas av.
+Dvs, jag vill att kunder ska kunna köpa biljetter till andra konserter, men jag vill låsa allt med det konsert-id:t som berör den avblåsta konserten.
+
+Vad som också skulle kunna ske eftersom isolationsnivån när man registrerar en konsert ligger på Read Committed är att artister och/eller arenor blir uppbokade
+på samma datum. Jag ser detta emellertid som ett mindre problem då det utförs en koll precis innan i transaktionen ifall arena/artist är upptagen. Skulle
+någon administratör råka lägga in en artist eller arena på ett datum på samma datum trots detta är det en bättre lösning att korrigera detta i efterhand
+än att låsa hela konserttabellen för kunder som försöker köpa biljetter till andra konserter. 
+
+När det gäller rapporter vill jag inte låsa något för reads gällande de rapporter som inte är underlag för bokföring. Grunden till rapporterna görs på aggregat
+vilkas exakthet inte spelar stor roll så länge det inte diffar i extrema mängder. Rapporterna ska bara vara som underlag till att ta ett visst beslut.
+Däremot vill jag att rapporter som är till bokföringsunderlag ska vara så exakta som det går. Det gör att jag inte vill ha in några phantom rows,
+vilket isåfall skulle tvinga mig att sätta dessa till serializable. Däremot brukar man inte göra rapporter för bokföringsunderlag i en period som pågår just nu,
+utan för en period som redan skett. Det i sin tur medför att isolationsnivån kan läggas på read uncommitted även här.
+
+f) Övrigt:
+Jag är medveten om att det finns en hel del saker som skulle kunna göras i en och samma query istället
+för att dela upp så som jag gjort. Det medför även en del problem både i form av prestanda och i form av isolation
+att göra vissa kontrollqueries innan för att sedan utföra det jag vill göra. T.ex att kolla ifall användaren finns registrerad i databasen.
+Detta går emellertid fort att utföra då det blir en key lookup och index seek på två ställen.
+
+3. Jag tror att jag har utfört i stort sett hela uppgiften. Det jag har inte har hunnit implementera är triggers. Jag har heller inte fått till sökfunktionen
+i C#-applikationen så som jag velat få till den. Men den fungerar sett ur SQL-perspektiv. Själva querien för detta ligger i en egen metod 'Search'.
+Där i kan hela sql-queryn hittas med tillhörande if-satser. Det som inte fungerar är min regex i main-metoden i kundapplikationen, ifall man inte söker på
+alla fält samtidigt. Själva sql-en hade fungerat ifall jag fått till det andra.
+
+4. Connection-stringen anges högst upp i Program.cs i varje program.
+
+5.
+a) Biljettförsäljningen har jag löst genom att sätta Repeatable read på transaktionen, vilket sätter en stor begränsning på programmet
+eftersom endast en person åt gången kan köpa en biljett. Detta kommer å ena sidan att göra att många får vänta på biljetter då trycket på att köpa är högt,
+exempelvis vid biljettsläpp. Å andra sidan säljs inte fler biljetter än vad som finns vilket leder till att ingen besviken över att ha trott sig få biljett,
+men inte fått. Man skulle också kunna lösa problemet genom att flera kan köpa samtidigt och sedan i tickets räkna ut hur många biljett som har utfärdats
+till en konsert och därigenom senare justera dels det tillgängliga biljettantalet till konserten och dels titta på vilka biljetter som köpts sist som är
+över konsertplatsens kapacitet.
+
+b) Jag har för varje input som användaren kan göra kollat om användaren har sökt på något i fältet.
+Om användaren har sökt på något har en sträng lagts på till SQL-strängen innefattande "WHERE" samt det användaren sökt på.
+Om användaren har sökt på något mer som har lagts till i strängen tidigare har "WHERE" bytts ut mot "AND".
+Om användaren har sökt på något tidigare eller inte hålls reda på genom en counter.
+För att användaren inte ska kunna söka på konserter som redan har varit har en sträng som kollar att konsertens
+datum är större eller lika med dagens datum lagts till i slutet av SQL-strängen.
+
+
+
+c) Jag har löst problemet med att återbetala biljetter för inställda konserter genom att först kopiera all biljettinfo
+kring konserten till en egen tabell innehållandes återkallade biljetter. Detta för att kunna använda informationen härifrån
+för att senare kunna ta ett beslut kring ifall man vill ge ut kuponger eller inte.
+Efter att information om biljetterna för given konsert kopierats ges pengarna tillbaka till de kunder
+vars biljetter blivit återkallade. Sedan tas biljetterna bort från biljett-tabellen. Efter detta kan konserten tas
+bort från konserttabellen. 
+
+Om man väljer att utfärda kuponger till de drabbade hämtas info om vilka kunder det gäller
+och de får en kupong för varje återkallad biljett. Utgångsdatum sätts till ett år från det att kupongen blivit utfärdad.
+Efter detta tas biljetterna bort från återkallade biljetter. Detta eftersom det inte ska gå att utfärda nya kuponger för dessa biljetter.
